@@ -124,7 +124,10 @@ Or you can use ...
 
 # Notes
 
-See [test](./test) dir for more usage examples. There are tests for each contract function.
+See [test](./test) dir for more usage examples. It demonstrates work of all functions.
+
+you can compile using `stdlib_test.fc` to replace `my_address()` and `get_balance()` calls with mocks but 
+unfortunately it does not work for `now()` because if compiler bug (function name collides with its opcode), you'll need to disable those calls in code manually to avoid errors.
 
 # Authors
 Nick Kozlov - CTO and Co-founder of BUTTON Wallet (@enormousrage, nk@buttonwallet.com)
