@@ -44,7 +44,7 @@ _ get_contract_state() impure {
         .store_uint(dest_addr, 256)
         .store_grams(amount)
         .store_uint(0, 106)
-        .store_uint(0x444f4e45, 33)
+        .store_uint(0x54455354, 9 + 64 + 32 + 1)
         .end_cell(), 3);
 }
 
@@ -106,6 +106,7 @@ _ get_contract_state() impure {
 }
 
 ;; finish initialization and start the channel
+;; requires a message with deposited amounts signed by both parties
 () start(slice sig_a, int Ua, slice sig_b, int Ub) impure {
     var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
     throw_unless(101, init == 0);
@@ -167,7 +168,8 @@ _ get_contract_state() impure {
     lockB = 1;
 }
 
-;; initialize a withdraw and start challenge period
+;; upload party states to initialize a withdraw and start challenge period
+;; party that did the upload gets `lock` flag
 () send_state(slice sig_sender, slice sig_a, int _Xa, slice sig_b, int _Xb) impure {
     var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
     throw_unless(107, init == 1);
@@ -234,7 +236,7 @@ _ get_contract_state() impure {
 }
 
 
-;; exit by timeout
+;; exit by timeout or if both parties amount are locked in
 () finalize(slice sig_a, int addrA, slice sig_b, int addrB) impure {
     var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
     throw_unless(111, init == 1);
@@ -274,6 +276,8 @@ _ get_contract_state() impure {
     send_grams(addrB, b);
 }
 
+;; anyone can upload a challenge. If someone can present signed message with higher amount for
+;; a user whose amount was already locked, this user gets slashed and all funds go to the other user
 () challenge(slice signature, int X) impure {
     var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
     throw_unless(113, init == 1);
@@ -310,10 +314,9 @@ _ get_contract_state() impure {
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
   ;; probably standard transfers have different serialization format
-  var cs = in_msg_cell.begin_parse();
-  var pubkey = cs~load_uint(256);
+  ;; we should load pubkey from message comment
+  var pubkey = in_msg~load_uint(256);
   deposit(pubkey, msg_value);
-  cs.end_parse();
 }
 
 () recv_external(slice in_msg) impure {
