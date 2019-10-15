@@ -1,0 +1,67 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"Asm.fif" include
+
+// { ."usage: " @' $0 type ." <workchain-id> [<filename-base>]" cr
+//  ."Creates a new wallet in specified workchain, with private key saved to or loaded from <filename-base>.pk" cr
+//   ."('new-wallet.pk' by default)" cr 1 halt
+// } : usage
+// $# 1- -2 and ' usage if
+
+0 =: wc  
+"lightning" constant file-base
+file-base +".fif" constant lightning-source
+
+."Creating new async payment channel in workchain " wc . cr
+
+true constant bounce
+
+// $1 bounce parse-load-address =: bounce 2=: alice_address
+// $2 bounce parse-load-address =: bounce 2=: bob_address
+
+// alice_address constant alice_public_key drop 
+// bob_address constant bob_public_key drop 
+
+PROGRAM{
+  lightning-source include
+}END>c
+
+// <b 
+//  alice_public_key 256 u, // alice pubkey
+//  bob_public_key 256 u,   // bob pubkey
+//  0 1 u,                  // init
+//  timeout 32 u,           // timeout
+//  0 32 u,                 // timestamp
+//  0 1 u,                  // lockA
+//  0 1 u,                  // lockB
+//  0 214 u,                // Xa
+//  0 214 u,                // Xb
+// b> // storage
+
+// <b 
+//   12 256 u, // alice pubkey
+//   13 256 u,   // bob pubkey
+//   0 1 u,                  // init
+//   14 32 u,           // timeout
+//   0 32 u,                 // timestamp
+//   0 1 u,                   // lockA
+//   0 1 u,                   // lockB
+//   0 214 u,                 // Xa
+//   0 214 u,                 // Xb
+// b> // storage
+
+<b 0 32 u, b>
+null // no libraries
+<b b{0011} s, 3 roll ref, rot ref, swap dict, b> // create StateInit
+dup ."StateInit: " <s csr. cr
+dup hashu wc swap 2dup 2constant contract_addr
+."new payment channel address = " 2dup .addr cr
+2dup file-base +".addr" save-address-verbose
+."Non-bounceable address (for init): " 2dup 7 .Addr cr
+."Bounceable address (for later access): " 6 .Addr cr
+
+<b b{1000100} s, contract_addr addr, b{000010} s, swap <s s, b{0} s, 0 32 u, b>
+dup ."External message for initialization is " <s csr. cr
+2 boc+>B dup Bx. cr
+file-base +".boc" tuck B>file
+."(Saved payment channel creating query to file " type .")" cr

@@ -1,0 +1,31 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"Asm.fif" include
+"Constants.fif" include
+
+true constant bounce
+
+$1 =: filebase
+$2 bounce parse-load-address =: bounce 2=: sm_addr
+$3 parse-int =: Xa
+$4 parse-int =: Xb
+
+
+filebase +".pk" load-generate-keypair
+constant wallet_pk
+constant wallet_addr
+
+sm_addr swap drop constant pool_address
+
+<b 
+  SEND_SIG_CODE 4 u,
+  pool_address 256 u,
+  Xa 214 u,
+  Xb 214 u,
+b> constant signing_message
+
+<b 
+  signing_message hash wallet_pk ed25519_sign_uint B, 
+b> constant signature
+
+signature <s csr.

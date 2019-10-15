@@ -1,0 +1,49 @@
+#!/usr/bin/env fift -s
+"Asm.fif" include
+"TonUtil.fif" include
+"../Constants.fif" include
+
+"alice.pk" load-generate-keypair
+constant alice_pk
+constant alice_pub
+0x10 constant alice_addr // mock address for withdraw
+
+"bob.pk" load-generate-keypair
+constant bob_pk
+constant bob_pub
+0x11 constant bob_addr // mock address for withdraw
+
+PROGRAM{
+  "../lightning.fif" include
+}END>c constant code
+
+5 constant Xa
+7 constant Xb
+6 constant _Xa
+0 constant pool_address // address is zero in vm
+0x02 constant method
+
+<b
+  0 1 u,         // init
+  86400 32 u,    // timeout
+  0 48 u,        // timestamp
+  alice_pub B,   // alice pubkey
+  bob_pub B,     // bob pubkey
+  0 1 u,         // lockA
+  0 1 u,         // lockB
+  Xa 214 u,      // Xa
+  Xb 214 u,      // Xb
+b> constant storage
+
+<b 
+  method 32 u, 
+  alice_pub B, 
+  _Xa 256 u, 
+b> constant body
+
+body <s recv_internal code <s storage runvm .s
+
+constant updated_storage
+constant exit_code
+."Exit code " exit_code . cr
+."Updated storage: " cr updated_storage <s csr. cr

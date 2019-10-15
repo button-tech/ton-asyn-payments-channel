@@ -1,0 +1,379 @@
+;; Constants:
+;; SEND_CANCEL_CODE = 0x01;
+;; SEND_START_CODE = 0x02;
+;; FAST_EXIT_CODE = 0x03;
+;; SEND_STATE_CODE = 0x04;
+;; SEND_SIG_CODE = 0x05;
+;; SEND_PAYADDR_CODE = 0x06;
+
+_ get_contract_state() impure {
+     var ds = get_data().begin_parse();
+     var result = (
+            ds~load_uint(1),
+            ds~load_uint(32),
+            ds~load_uint(48),
+            ds~load_uint(256),
+            ds~load_uint(256),
+            ds~load_uint(1),
+            ds~load_uint(1),
+            ds~load_uint(214),
+            ds~load_uint(214)
+     );
+     ds.end_parse();
+     return result;
+}
+
+() set_contract_state(int init, int timeout, int timestamp, int pubA, int pubB, int lockA, int lockB, int Xa, int Xb) impure { 
+     set_data(begin_cell()
+        .store_uint(init, 1)         ;; init        1 bit flag to initialize contract
+        .store_uint(timeout, 32)     ;; timeout     32 bits timeout in second for exit
+        .store_uint(timestamp, 48)   ;; timestamp   48 bits unix time in seconds
+        .store_uint(pubA, 256)       ;; pubA        256 bits    pub key of user A
+        .store_uint(pubB, 256)       ;; pubB        256 bits    pub key of user B
+        .store_uint(lockA, 1)        ;; lockA       1 bit   flag registry for A
+        .store_uint(lockB, 1)        ;; lockB       1 bit   flag registry for B
+        .store_uint(Xa, 214)         ;; Xa - amount that first user is going to send
+        .store_uint(Xb, 214)         ;; Xb - amount that second user is going to send
+        .end_cell());
+}
+
+() send_grams(int dest_addr, int amount) impure {
+    ;; We were unable to find docs on all the arguments for this call
+    send_raw_message(begin_cell()
+        .store_uint(0xc400, 17)
+        .store_uint(dest_addr, 256)
+        .store_grams(amount)
+        .store_uint(0, 106)
+        .store_uint(0x444f4e45, 33)
+        .end_cell(), 3);
+}
+
+;; deposit funds during initialization
+() deposit(int pubkey, int msg_value) impure {
+    var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
+    throw_unless(101, init == 0);
+
+    if (pubkey == pubA) {
+        Xa += msg_value;
+    } elseif (pubkey == pubB) {
+        Xb += msg_value;
+    } else {
+        throw(102);
+    }
+    set_contract_state(init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb);
+}
+
+
+;; withdraw funds before payment channel started
+;; accepts caller signature, and signed withdrawal addresses of the participants
+() cancel(slice signature, slice sig_a, int addrA, slice sig_b, int addrB) impure {
+    var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
+    throw_unless(101, init == 0);
+    
+    var checking_slice = begin_cell()
+         .store_uint(0x01, 8)
+         .store_slice(my_address())
+         .end_cell();
+    var data_slice_hash = slice_hash(checking_slice.begin_parse());
+    throw_unless(201, check_signature(data_slice_hash, signature, pubA) | check_signature(data_slice_hash, signature, pubB));
+
+  var checking_slice_a = begin_cell()
+         .store_uint(0x06, 8)
+         .store_slice(my_address())
+         .store_uint(addrA, 256)
+         .end_cell();
+
+    var checking_slice_b = begin_cell()
+         .store_uint(0x06, 8)
+         .store_slice(my_address())
+         .store_uint(addrB, 256)
+         .end_cell();
+         
+    var data_slice_hash_a = slice_hash(checking_slice_a.begin_parse());
+    var data_slice_hash_b = slice_hash(checking_slice_b.begin_parse());    
+    
+    throw_unless(207, check_signature(data_slice_hash_a, sig_a, pubA));
+    throw_unless(208, check_signature(data_slice_hash_b, sig_b, pubB));
+
+    accept_message();
+
+    init = 1;
+    send_grams(Xa, addrA);
+    send_grams(Xb, addrB);
+    Xa = 0;
+    Xb = 0;
+    set_contract_state(init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb);
+}
+
+;; finish initialization and start the channel
+() start(slice sig_a, int Ua, slice sig_b, int Ub) impure {
+    var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
+    throw_unless(101, init == 0);
+
+    var checking_slice = begin_cell()
+         .store_uint(0x02, 8)
+         .store_slice(my_address())
+         .store_uint(Ua, 214)
+         .store_uint(Ub, 214)
+         .end_cell();
+         
+    var data_slice_hash = slice_hash(checking_slice.begin_parse());  
+    
+    throw_unless(202, check_signature(data_slice_hash, sig_a, pubA));
+    throw_unless(203, check_signature(data_slice_hash, sig_b, pubB));
+
+    if ((Xa < Ua) | (Xb < Ub)) {
+        throw(105);
+    }
+
+    accept_message();
+
+    if (Xa > Ua) {
+        send_grams(pubA, Ua - Xa);
+    }
+
+    if (Xb > Ub) {
+        send_grams(pubB, Ub - Xb);
+    }
+
+    Xa = 0;
+    Xb = 0;
+    init = 1;
+    set_contract_state(init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb);
+}
+
+;; exit with no delay if both parties signed the exit message
+() fast_exit(int _amountA, slice sig_a, slice sig_b) impure {
+    var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
+    throw_unless(101, init == 1);
+    
+    var checking_slice = begin_cell()
+         .store_uint(0x03, 8)
+         .store_slice(my_address())
+         .store_uint(_amountA, 214)
+         .end_cell();
+         
+         
+    var data_slice_hash = slice_hash(checking_slice.begin_parse());
+     
+    throw_unless(204, check_signature(data_slice_hash, sig_a, pubA));
+    throw_unless(205, check_signature(data_slice_hash, sig_b, pubB));
+
+    accept_message();
+
+    Xa = _amountA / 2;
+    Xb = get_balance().first() / 2 - Xa;
+    lockA = 1;
+    lockB = 1;
+}
+
+;; initialize a withdraw and start challenge period
+() send_state(slice sig_sender, slice sig_a, int _Xa, slice sig_b, int _Xb) impure {
+    var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
+    throw_unless(107, init == 1);
+    throw_if(108, get_balance().first() == 0);
+    
+    var checking_slice_a = begin_cell()
+         .store_uint(0x04, 8)
+         .store_slice(my_address())
+         .store_uint(_Xa, 214)
+         .end_cell();
+        
+    var checking_slice_b = begin_cell()
+         .store_uint(0x04, 8)
+         .store_slice(my_address())
+         .store_uint(_Xb, 214)
+         .end_cell();
+    
+    var checking_slice_a_b = begin_cell()
+         .store_uint(0x05, 8)
+         .store_slice(my_address())
+         .store_uint(_Xa, 214)
+         .store_uint(_Xb, 214)
+         .end_cell();
+         
+         
+    var data_slice_hash_a = slice_hash(checking_slice_a.begin_parse());
+    var data_slice_hash_b = slice_hash(checking_slice_b.begin_parse());    
+    var data_slice_hash_a_b = slice_hash(checking_slice_a_b.begin_parse()); 
+    
+    throw_unless(206, check_signature(data_slice_hash_a, sig_a, pubA));
+    throw_unless(207, check_signature(data_slice_hash_b, sig_b, pubB));
+         
+    var senderA = 0;
+    if (check_signature(data_slice_hash_a_b, sig_sender, pubA)) {
+        senderA = 0x1;
+    } elseif (check_signature(data_slice_hash_a_b, sig_sender, pubB)) {
+        senderA = 0x0;
+    } else {
+        throw(110);
+    }
+
+    accept_message();
+
+    if (timestamp == 0) {
+        ;; TODO timestamp = now() + timeout;
+        timestamp = timeout;
+    }
+
+    if((lockA == 0) & (Xa < _Xa)) {
+        Xa = _Xa;
+        if (senderA == false) {
+            lockA = 1;
+        }
+    }
+
+    if((lockB == 0) & (Xb < _Xb)) {
+        Xb = _Xb;
+        if (senderA) {
+            lockB = 1;
+        }
+    }
+    
+    set_contract_state(init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb);
+}
+
+
+;; exit by timeout
+() finalize(slice sig_a, int addrA, slice sig_b, int addrB) impure {
+    var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
+    throw_unless(111, init == 1);
+    ;; TODO throw_if(112, timestamp < now() & ((lockA & lockB) == false));
+    throw_if(112, (lockA & lockB) == false);
+
+    var checking_slice_a = begin_cell()
+         .store_uint(0x06, 8)
+         .store_slice(my_address())
+         .store_uint(addrA, 256)
+         .end_cell();
+
+    var checking_slice_b = begin_cell()
+         .store_uint(0x06, 8)
+         .store_slice(my_address())
+         .store_uint(addrB, 256)
+         .end_cell();
+         
+    var data_slice_hash_a = slice_hash(checking_slice_a.begin_parse());
+    var data_slice_hash_b = slice_hash(checking_slice_b.begin_parse());    
+    
+    throw_unless(207, check_signature(data_slice_hash_a, sig_a, pubA));
+    throw_unless(208, check_signature(data_slice_hash_b, sig_b, pubB));
+
+    accept_message();
+
+    var a = Xa - Xb + get_balance().first() / 2;
+    var b = get_balance().first() - a;
+    if (a < 0) {
+        a = 0;
+    }
+    if (a > get_balance().first()) {
+        a = get_balance().first();
+    }
+
+    send_grams(addrA, a);
+    send_grams(addrB, b);
+}
+
+() challenge(slice signature, int X) impure {
+    var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
+    throw_unless(113, init == 1);
+    throw_if(114, get_balance().first() == 0);
+    
+    accept_message();
+    
+    var checking_slice = begin_cell()
+         .store_uint(0x04, 8)
+         .store_slice(my_address())
+         .store_uint(X, 214)
+         .end_cell();
+         
+    var data_slice_hash = slice_hash(checking_slice.begin_parse());
+    
+    if (check_signature(data_slice_hash, signature, pubA)) {
+        if ((X > Xa) & lockA & (lockB == false)) {
+            ;; send_grams(pubB, get_balance().first());
+            Xb = get_balance().first() / 2;
+            Xa = 0;
+            lockB = 1;
+        }
+    } elseif (check_signature(data_slice_hash, signature, pubB)) {
+        if ((X > Xb) & lockB & (lockA == false)) {
+            ;; send_grams(pubA, get_balance().first());
+            Xa = 0;
+            Xb = get_balance().first() / 2;
+            lockA = 1;
+        }
+    } else {
+        throw(115);
+    }
+}
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+  ;; probably standard transfers have different serialization format
+  var cs = in_msg_cell.begin_parse();
+  var pubkey = cs~load_uint(256);
+  deposit(pubkey, msg_value);
+  cs.end_parse();
+}
+
+() recv_external(slice in_msg) impure {
+    var cs = in_msg;
+    ;; tag = sha256(method_name)[0:4]
+    var tag = cs~load_uint(32);
+    if (tag == 0x2374d917) {
+        var signature = cs~load_bits(512);
+        var csa = cs~load_ref().begin_parse();
+        var csb = cs~load_ref().begin_parse();
+        var sig_a = csa~load_bits(512);
+        var addrA = csa~load_uint(256);
+        var sig_b = csb~load_bits(512);
+        var addrB = csb~load_uint(256);
+        cs.end_parse();
+        csa.end_parse();
+        csb.end_parse();
+        cancel(signature, sig_a, addrA, sig_b, addrB);
+    } elseif (tag == 0xcced28c6) {
+        var sig_a = cs~load_bits(512);
+        var Ua = cs~load_uint(214);
+        var cs2 = cs~load_ref().begin_parse();
+        var sig_b = cs2~load_bits(512);
+        var Ub = cs2~load_uint(214);
+        cs.end_parse();
+        cs2.end_parse();
+        start(sig_a, Ua, sig_b, Ub);
+    } elseif (tag == 0x3685309d) {
+        var _amountA = cs~load_uint(214);
+        var sig_a = cs~load_bits(512);
+        var cs2 = cs~load_ref().begin_parse();
+        var sig_b = cs2~load_bits(512);
+        cs.end_parse();
+        cs2.end_parse();
+        fast_exit(_amountA, sig_a, sig_b);
+    } elseif (tag == 0x4ce65d4d) {
+        var sender_sig = cs~load_bits(512);
+        var csa = cs~load_ref().begin_parse();
+        var csb = cs~load_ref().begin_parse();
+        var sig_a = csa~load_bits(512);
+        var _Xa = csa~load_uint(214);
+        var sig_b = csb~load_bits(512);
+        var _Xb = csb~load_uint(214);
+        cs.end_parse();
+        csa.end_parse();
+        csb.end_parse();
+        send_state(sender_sig, sig_a, _Xa, sig_b, _Xb);
+    } elseif (tag == 0xc298bcd3) {
+        var sig_a = cs~load_bits(512);
+        var addrA = cs~load_uint(256);
+        var cs2 = cs~load_ref().begin_parse();
+        var sig_b = cs2~load_bits(512);
+        var addrB = cs2~load_uint(256);
+        cs.end_parse();
+        cs2.end_parse();
+        finalize(sig_a, addrA, sig_b, addrB);
+    } elseif (tag == 0x2dd00bd7) {
+        var signature = cs~load_bits(512);
+        var X = cs~load_uint(214);
+        cs.end_parse();
+        challenge(signature, X);
+    }
+}

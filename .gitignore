@@ -1,0 +1,6 @@
+*.boc
+*.addr
+*.pk
+lightning.fif
+test-example
+call.fif

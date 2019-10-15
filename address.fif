@@ -1,0 +1,17 @@
+#!/usr/bin/env fift -s
+"TonUtil.fif" include
+"Asm.fif" include
+"Constants.fif" include
+
+$1 =: filebase
+filebase +".pk" load-generate-keypair
+constant wallet_pk
+constant wallet_pub
+
+filebase +".addr" load-address wallet_pk ed25519_sign_uint swap drop
+<b 
+   6 4 u, 
+   swap B, 
+b> constant signature
+
+signature <s csr.

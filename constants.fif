@@ -1,0 +1,6 @@
+1 constant SEND_CANCEL_CODE
+2 constant SEND_START_CODE
+3 constant FAST_EXIT_CODE
+4 constant SEND_STATE_CODE
+5 constant SEND_SIG_CODE
+6 constant SEND_PAYADDR_CODE

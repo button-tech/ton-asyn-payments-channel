@@ -1,0 +1,81 @@
+#!/usr/bin/env fift -s
+"Asm.fif" include
+"TonUtil.fif" include
+"../Constants.fif" include
+
+"alice.pk" load-generate-keypair
+constant alice_pk
+constant alice_pub
+0x10 constant alice_addr // mock address for withdraw
+
+"bob.pk" load-generate-keypair
+constant bob_pk
+constant bob_pub
+0x11 constant bob_addr // mock address for withdraw
+
+PROGRAM{
+  "../lightning.fif" include
+}END>c constant code
+
+5 constant Xa
+7 constant Xb
+0 constant pool_address // address is zero in vm
+0x2374d917 constant method
+
+<b
+  0 1 u,         // init
+  86400 32 u,    // timeout
+  0 48 u,        // timestamp
+  alice_pub B,   // alice pubkey
+  bob_pub B,     // bob pubkey
+  0 1 u,         // lockA
+  0 1 u,         // lockB
+  Xa 214 u,      // Xa
+  Xb 214 u,      // Xb
+b> constant storage
+
+<b 
+  SEND_PAYADDR_CODE 8 u,
+  pool_address 256 u,
+  alice_addr 256 u,
+b> constant alice_message
+
+<b 
+  SEND_PAYADDR_CODE 8 u,
+  pool_address 256 u,
+  bob_addr 256 u,
+b> constant bob_message
+
+alice_message hash alice_pk ed25519_sign_uint constant alice_signature
+bob_message hash bob_pk ed25519_sign_uint constant bob_signature
+
+<b 
+  SEND_CANCEL_CODE 8 u,
+  pool_address 256 u,
+b> constant sender_message
+
+sender_message hash alice_pk ed25519_sign_uint constant sender_signature
+
+<b 
+  alice_signature B, 
+  alice_addr 256 u, 
+b> constant alice_addr_cell
+
+<b 
+  bob_signature B, 
+  bob_addr 256 u, 
+b> constant bob_addr_cell
+
+<b 
+  method 32 u, 
+  sender_signature B, 
+  alice_addr_cell ref,
+  bob_addr_cell ref,
+b> constant body
+
+body <s recv_external code <s storage runvm .s
+
+constant updated_storage
+constant exit_code
+."Exit code " exit_code . cr
+."Updated storage: " cr updated_storage <s csr. cr

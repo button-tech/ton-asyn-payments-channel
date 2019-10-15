@@ -1,0 +1,60 @@
+#!/usr/bin/env fift -s
+"Asm.fif" include
+"TonUtil.fif" include
+"../Constants.fif" include
+
+"alice.pk" load-generate-keypair
+constant alice_pk
+constant alice_pub
+
+"bob.pk" load-generate-keypair
+constant bob_pk
+constant bob_pub
+
+PROGRAM{
+  "../lightning.fif" include
+}END>c constant code
+
+5 constant Xa
+7 constant Xb
+0 constant pool_address // address is zero in vm
+0x3685309d constant method
+
+<b
+  1 1 u,         // init
+  86400 32 u,    // timeout
+  0 48 u,        // timestamp
+  alice_pub B,   // alice pubkey
+  bob_pub B,     // bob pubkey
+  0 1 u,         // lockA
+  0 1 u,         // lockB
+  Xa 214 u,      // Xa
+  Xb 214 u,      // Xb
+b> constant storage
+
+<b 
+  FAST_EXIT_CODE 8 u,
+  pool_address 256 u,
+  Xa 214 u,
+b> constant signing_message
+
+signing_message hash alice_pk ed25519_sign_uint constant alice_signature
+signing_message hash bob_pk ed25519_sign_uint constant bob_signature
+
+<b 
+  bob_signature B, 
+b> constant body2
+
+<b 
+  method 32 u, 
+  Xa 214 u, 
+  alice_signature B, 
+  body2 ref,
+b> constant body
+
+body <s recv_external code <s storage runvm .s
+
+constant updated_storage
+constant exit_code
+."Exit code " exit_code . cr
+."Updated storage: " cr updated_storage <s csr. cr
