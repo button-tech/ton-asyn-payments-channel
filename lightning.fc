@@ -214,8 +214,8 @@ _ get_contract_state() impure {
     accept_message();
 
     if (timestamp == 0) {
-        ;; TODO timestamp = now() + timeout;
-        timestamp = timeout;
+        timestamp = now() + timeout;
+        ;; for test: timestamp = timeout;
     }
 
     if((lockA == 0) & (Xa < _Xa)) {
@@ -240,8 +240,8 @@ _ get_contract_state() impure {
 () finalize(slice sig_a, int addrA, slice sig_b, int addrB) impure {
     var (init, timeout, timestamp, pubA, pubB, lockA, lockB, Xa, Xb) = get_contract_state();
     throw_unless(111, init == 1);
-    ;; TODO throw_if(112, timestamp < now() & ((lockA & lockB) == false));
-    throw_if(112, (lockA & lockB) == false);
+    throw_if(112, timestamp < now() & ((lockA & lockB) == false));
+    ;; for test: throw_if(112, (lockA & lockB) == false);
 
     var checking_slice_a = begin_cell()
          .store_uint(0x06, 8)
