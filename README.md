@@ -92,36 +92,6 @@ Send to special method the message (contract_address, exit_code, a), signed by b
 - send some test grams to the displayed address
 - in ton node `sendfile deploy.boc`
 
-# Usage
-
-There are a couple of .fif files to work with the smart contract. When executed, they usually write data to `query.boc`, 
-which you then need to upload to TON network using `sendfile` in your ton node.
-
-Deposit funds to the payment channel
-
-```
-./init.fif # TODO: sign required messages
-./deposit.fif alice <channel addr> <amount>
-./deposit.fif deposit bob <channel addr> <amount>
-```
-
-Now send some funds between alice and bob
-
-```
-./send.fif alice bob <amount>
-./send.fif send bob alice <amount>
-./balance.fif alice
-```
-
-You can now close payment channel with fast exit:
-
-```
-./fast_exit.fif
-```
-
-Or you can use ...
-
-
 # Notes
 
 See [test](./test) dir for more usage examples. It demonstrates work of all functions.
