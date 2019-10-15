@@ -1,7 +1,7 @@
 #!/usr/bin/env fift -s
 "Asm.fif" include
 "TonUtil.fif" include
-"../Constants.fif" include
+"../сonstants.fif" include
 
 "alice.pk" load-generate-keypair
 constant alice_pk
